@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vector Clock Simulator</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--bd:#d9d9d3;--acc:#3b5bdb;--past:#2f9e44;--fut:#1c7ed6;--conc:#e8590c;--sel:#7048e8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16171a;--fg:#ececea;--mut:#a0a09a;--card:#1f2024;--bd:#34353b;--acc:#748ffc;--past:#51cf66;--fut:#4dabf7;--conc:#ff922b;--sel:#b197fc}}
+:root[data-theme="dark"]{--bg:#16171a;--fg:#ececea;--mut:#a0a09a;--card:#1f2024;--bd:#34353b;--acc:#748ffc;--past:#51cf66;--fut:#4dabf7;--conc:#ff922b;--sel:#b197fc}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 8px}
+p.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:6px 12px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button:hover{filter:brightness(.95)}
+label{color:var(--mut);font-size:13px}
+.sc{overflow-x:auto}
+svg{display:block}
+svg text{fill:var(--fg);font-family:inherit}
+.lane{stroke:var(--bd);stroke-width:2}
+.msg{stroke:var(--mut);stroke-width:1.5;fill:none}
+.node{cursor:pointer;fill:var(--card);stroke:var(--mut);stroke-width:2}
+.node.past{stroke:var(--past);fill:color-mix(in srgb,var(--past) 22%,var(--card))}
+.node.fut{stroke:var(--fut);fill:color-mix(in srgb,var(--fut) 22%,var(--card))}
+.node.conc{stroke:var(--conc);fill:color-mix(in srgb,var(--conc) 22%,var(--card))}
+.node.sel{stroke:var(--sel);stroke-width:4;fill:color-mix(in srgb,var(--sel) 25%,var(--card))}
+.vc{font-size:10px;fill:var(--mut)}
+.leg span{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 12px}
+.res{font-size:16px;font-weight:600;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)}
+.chip{display:inline-block;padding:2px 9px;margin:2px;border-radius:999px;border:1px solid var(--conc);font-size:13px}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.pend{display:flex;gap:6px;flex-wrap:wrap}
+ul{margin:6px 0 0 18px;padding:0}
+.tw{overflow-x:auto}
+</style>
+</head>
+<body>
+<main>
+<h1>Vector Clock Simulator</h1>
+<p class="sub">Distributed processes simulate pannitu, events-oda causal (happened-before) and concurrent relationships identify pannum.</p>
+
+<div class="card">
+  <h2>1. Control panel</h2>
+  <div class="row">
+    <label>Processes</label>
+    <select id="n"><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
+    <label>Process</label><select id="p"></select>
+    <button id="bl">Local event</button>
+    <label>Send to</label><select id="q"></select>
+    <button id="bs" class="p">Send message</button>
+    <button id="bd">Load demo</button>
+    <button id="br">Reset</button>
+  </div>
+  <div style="margin-top:10px"><label>In-flight messages (any order-la deliver pannalam):</label>
+    <div class="pend" id="pend"></div></div>
+</div>
+
+<div class="card">
+  <h2>2. Space-time diagram <span style="font-weight:400;color:var(--mut);font-size:13px">(event click pannunga: 1st = A, 2nd = B)</span></h2>
+  <div class="sc" id="sc"></div>
+  <div class="leg"><span style="background:var(--sel)"></span>selected A/B<span style="background:var(--past)"></span>causal past of A<span style="background:var(--fut)"></span>causal future of A<span style="background:var(--conc)"></span>concurrent with A</div>
+  <div class="res" id="res" style="margin-top:10px">Rendu events select pannunga.</div>
+</div>
+
+<div class="card">
+  <h2>3. Concurrent event pairs</h2>
+  <div id="cp"></div>
+  <p class="sub" id="stat" style="margin:8px 0 0"></p>
+</div>
+
+<div class="card">
+  <h2>4. Event log</h2>
+  <div class="tw"><table id="tb"></table></div>
+</div>
+
+<div class="card">
+  <h2>Algorithm</h2>
+  <ul>
+    <li><b>Local event (Pi):</b> VC[i] = VC[i] + 1</li>
+    <li><b>Send (Pi → Pj):</b> VC[i] = VC[i] + 1, then message-oda VC attach pannitu anuppum</li>
+    <li><b>Receive (Pj):</b> VC[k] = max(VC[k], msgVC[k]) for all k, then VC[j] = VC[j] + 1</li>
+    <li><b>a → b (happened-before)</b> iff VC(a) ≤ VC(b) in all positions and VC(a) ≠ VC(b)</li>
+    <li><b>a ∥ b (concurrent)</b> iff neither VC(a) ≤ VC(b) nor VC(b) ≤ VC(a)</li>
+  </ul>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let N=3,E=[],M=[],V=[],A=null,B=null,uid=0;
+const leq=(a,b)=>a.every((x,i)=>x<=b[i]);
+const hb=(a,b)=>leq(a.vc,b.vc)&&a.vc.some((x,i)=>x<b.vc[i]);
+const get=id=>E.find(e=>e.id===id);
+function add(p,type,extra){const e=Object.assign({id:E.length+1,p,type,vc:V[p].slice()},extra||{});E.push(e);return e}
+function local(p){V[p][p]++;add(p,"local")}
+function send(p,q){if(p===q)return;V[p][p]++;const e=add(p,"send",{to:q});M.push({id:++uid,s:e.id,to:q,vc:V[p].slice(),r:null})}
+function deliver(mid){const m=M.find(x=>x.id===mid);if(!m||m.r)return;const q=m.to;
+  V[q]=V[q].map((x,i)=>Math.max(x,m.vc[i]));V[q][q]++;const e=add(q,"recv",{from:m.s,msg:m.id});m.r=e.id}
+function reset(n){N=n||N;E=[];M=[];uid=0;A=B=null;V=Array.from({length:N},()=>Array(N).fill(0));fill();render()}
+function fill(){const o=Array.from({length:N},(_,i)=>`<option value="${i}">P${i+1}</option>`).join("");
+  const ps=+($("p").value||0),qs=+($("q").value||1);$("p").innerHTML=o;$("q").innerHTML=o;
+  $("p").value=Math.min(ps,N-1);$("q").value=Math.min(qs,N-1)}
+function demo(){reset(3);send(0,1);local(2);deliver(1);send(1,2);local(0);deliver(2);send(2,0);local(1);deliver(3)}
+function pick(id){if(A===null||(A!==null&&B!==null))A=id,B=null;else B=id;render()}
+const rel=(a,b)=>a===b?"same event":hb(a,b)?"→":hb(b,a)?"←":"∥";
+function render(){
+  const X=i=>70+i*58,Y=p=>45+p*85,W=Math.max(640,X(E.length)+40),H=Y(N-1)+60;
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--mut)"/></marker></defs>`;
+  for(let p=0;p<N;p++)s+=`<line class="lane" x1="40" y1="${Y(p)}" x2="${W-10}" y2="${Y(p)}"/><text x="8" y="${Y(p)+4}" font-weight="600">P${p+1}</text>`;
+  M.forEach(m=>{const a=get(m.s);if(m.r){const b=get(m.r);s+=`<line class="msg" marker-end="url(#ar)" x1="${X(a.id-1)}" y1="${Y(a.p)}" x2="${X(b.id-1)}" y2="${Y(b.p)-(b.p>a.p?14:-14)}"/>`}});
+  const ref=A?get(A):null;
+  E.forEach(e=>{let c="node";if(ref){if(e.id===A||e.id===B)c+=" sel";else if(hb(e,ref))c+=" past";else if(hb(ref,e))c+=" fut";else c+=" conc"}
+    const x=X(e.id-1),y=Y(e.p);
+    s+=`<g onclick="pick(${e.id})"><circle class="${c}" cx="${x}" cy="${y}" r="14"/><text x="${x}" y="${y+4}" text-anchor="middle" font-size="11">${e.id}</text>`+
+       `<text class="vc" x="${x}" y="${y+30}" text-anchor="middle">[${e.vc.join(",")}]</text>`+
+       `<text class="vc" x="${x}" y="${y-20}" text-anchor="middle">${e.type==="send"?"S→P"+(e.to+1):e.type==="recv"?"R←e"+e.from:"L"}</text></g>`});
+  $("sc").innerHTML=s+"</svg>";
+  // pending
+  const pe=M.filter(m=>!m.r);
+  $("pend").innerHTML=pe.length?pe.map(m=>`<button onclick="deliver(${m.id});render()">Deliver e${m.s} → P${m.to+1} [${m.vc.join(",")}]</button>`).join(""):'<span style="color:var(--mut)">none</span>';
+  // relation result
+  if(A&&B){const a=get(A),b=get(B),r=rel(a,b);
+    $("res").innerHTML=a===b?"Same event select panniteenga.":r==="→"?`e${a.id} → e${b.id} : e${a.id} happened-before e${b.id} (causally related)<br><span class="mono" style="font-weight:400">[${a.vc}] &lt; [${b.vc}]</span>`:
+    r==="←"?`e${b.id} → e${a.id} : e${b.id} happened-before e${a.id} (causally related)<br><span class="mono" style="font-weight:400">[${b.vc}] &lt; [${a.vc}]</span>`:
+    `e${a.id} ∥ e${b.id} : CONCURRENT (causal order illa)<br><span class="mono" style="font-weight:400">[${a.vc}] vs [${b.vc}] – incomparable</span>`}
+  else $("res").textContent=A?`A = e${A}. Ippo B event-ah click pannunga.`:"Rendu events select pannunga.";
+  // pairs
+  let cp=[],ca=0;
+  for(let i=0;i<E.length;i++)for(let j=i+1;j<E.length;j++){const a=E[i],b=E[j];if(hb(a,b)||hb(b,a))ca++;else cp.push(`<span class="chip">e${a.id} ∥ e${b.id}</span>`)}
+  $("cp").innerHTML=cp.length?cp.join(""):'<span style="color:var(--mut)">No concurrent pairs yet</span>';
+  $("stat").textContent=`Total events: ${E.length} | Causally related pairs: ${ca} | Concurrent pairs: ${cp.length}`;
+  // table
+  $("tb").innerHTML="<tr><th>#</th><th>Process</th><th>Type</th><th>Detail</th><th>Vector clock</th></tr>"+E.map(e=>`<tr><td>e${e.id}</td><td>P${e.p+1}</td><td>${e.type}</td><td>${e.type==="send"?"to P"+(e.to+1):e.type==="recv"?"from e"+e.from:"internal"}</td><td class="mono">[${e.vc.join(", ")}]</td></tr>`).join("");
+}
+$("n").onchange=()=>reset(+$("n").value);
+$("bl").onclick=()=>{local(+$("p").value);render()};
+$("bs").onclick=()=>{send(+$("p").value,+$("q").value);render()};
+$("bd").onclick=()=>{$("n").value="3";demo()};
+$("br").onclick=()=>reset(+$("n").value);
+reset(3);
+</script>
+</body>
+</html>
